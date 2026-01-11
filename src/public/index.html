@@ -1,0 +1,136 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Pi Monitor (TS)</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 24px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+        .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; }
+        .big { font-size: 28px; font-weight: 700; }
+        .muted { color: #666; }
+        pre { white-space: pre-wrap; }
+        button { padding: 8px 12px; border-radius: 10px; border: 1px solid #ddd; background: white; cursor: pointer; }
+        button:hover { background: #f7f7f7; }
+    </style>
+</head>
+<body>
+<h1>Raspberry Pi Monitor</h1>
+<div class="muted" id="specs">Loading specs…</div>
+
+<div style="margin-top:12px;">
+    <button id="modeBtn">Mode: Polling</button>
+    <span class="muted" style="margin-left:8px;" id="modeHint"></span>
+</div>
+
+<div class="grid" style="margin-top:16px;">
+    <div class="card"><div class="muted">CPU Temp</div><div class="big" id="temp">—</div></div>
+    <div class="card"><div class="muted">CPU Freq</div><div class="big" id="freq">—</div></div>
+    <div class="card"><div class="muted">Load Avg (1/5/15m)</div><div class="big" id="load">—</div></div>
+    <div class="card"><div class="muted">Memory Used</div><div class="big" id="mem">—</div></div>
+    <div class="card"><div class="muted">Disk ( / )</div><div class="big" id="disk">—</div></div>
+    <div class="card"><div class="muted">Uptime</div><div class="big" id="uptime">—</div></div>
+</div>
+
+<h3 style="margin-top:18px;">Raw JSON</h3>
+<pre class="card" id="raw">—</pre>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+
+    function fmt(n, digits=1) {
+        if (n === null || n === undefined || Number.isNaN(n)) return "—";
+        return Number(n).toFixed(digits);
+    }
+
+    function fmtUptime(sec) {
+        if (!Number.isFinite(sec)) return "—";
+        const d = Math.floor(sec / 86400);
+        sec %= 86400;
+        const h = Math.floor(sec / 3600);
+        sec %= 3600;
+        const m = Math.floor(sec / 60);
+        return `${d}d ${h}h ${m}m`;
+    }
+
+    function render(m) {
+        $("temp").textContent = m.cpu_temp_c != null ? `${fmt(m.cpu_temp_c, 1)} °C` : "—";
+        $("freq").textContent = m.cpu_freq_mhz != null ? `${fmt(m.cpu_freq_mhz, 0)} MHz` : "—";
+
+        if (m.loadavg) {
+            $("load").textContent = `${fmt(m.loadavg["1m"], 2)} / ${fmt(m.loadavg["5m"], 2)} / ${fmt(m.loadavg["15m"], 2)}`;
+        } else {
+            $("load").textContent = "—";
+        }
+
+        if (m.mem) {
+            $("mem").textContent = `${fmt(m.mem.used_gb, 2)} / ${fmt(m.mem.total_gb, 2)} GB (${fmt(m.mem.used_pct, 0)}%)`;
+        } else {
+            $("mem").textContent = "—";
+        }
+
+        if (m.disk_root) {
+            $("disk").textContent = `${fmt(m.disk_root.used_gb, 1)} / ${fmt(m.disk_root.size_gb, 1)} GB (${m.disk_root.use_pct})`;
+        } else {
+            $("disk").textContent = "—";
+        }
+
+        $("uptime").textContent = fmtUptime(m.uptime_sec);
+        $("raw").textContent = JSON.stringify(m, null, 2);
+    }
+
+    async function loadSpecs() {
+        const r = await fetch("/api/specs");
+        const s = await r.json();
+        $("specs").textContent = `${s.model ?? "Unknown model"} • ${s.hostname} • ${s.arch} • CPU cores: ${s.cpu_count ?? "?"}`;
+    }
+
+    // --- Polling mode ---
+    let pollTimer = null;
+    async function startPolling() {
+        stopStreaming();
+        $("modeHint").textContent = "updates every 1s";
+        const tick = async () => {
+            const r = await fetch("/api/metrics", { cache: "no-store" });
+            render(await r.json());
+        };
+        await tick();
+        pollTimer = setInterval(tick, 1000);
+    }
+    function stopPolling() {
+        if (pollTimer) clearInterval(pollTimer);
+        pollTimer = null;
+    }
+
+    // --- SSE streaming mode ---
+    let es = null;
+    function startStreaming() {
+        stopPolling();
+        $("modeHint").textContent = "server pushes updates (SSE)";
+        es = new EventSource("/api/stream");
+        es.onmessage = (ev) => render(JSON.parse(ev.data));
+        es.onerror = () => {
+            // If SSE fails (proxy etc.), fallback to polling:
+            stopStreaming();
+            startPolling();
+        };
+    }
+    function stopStreaming() {
+        if (es) es.close();
+        es = null;
+    }
+
+    // Toggle
+    let mode = "poll";
+    $("modeBtn").onclick = () => {
+        mode = mode === "poll" ? "sse" : "poll";
+        $("modeBtn").textContent = `Mode: ${mode === "poll" ? "Polling" : "SSE"}`;
+        mode === "poll" ? startPolling() : startStreaming();
+    };
+
+    loadSpecs();
+    startPolling();
+</script>
+</body>
+</html>
