@@ -192,6 +192,6 @@ app.get("/api/stream", (req: Request, res: Response) => {
     });
 });
 
-app.listen(port, "0.0.0.0", () => {
+app.listen(port, () => {
     console.log(`pi-monitor-ts running on http://0.0.0.0:${port}`);
 });
