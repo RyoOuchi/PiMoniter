@@ -192,6 +192,10 @@ app.get("/api/stream", (req: Request, res: Response) => {
     });
 });
 
+app.get("/", (req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, "../src/public/index.html"));
+})
+
 app.listen(port, () => {
-    console.log(`pi-monitor-ts running on http://0.0.0.0:${port}`);
+    console.log(`pi-monitor-ts running on http://localhost:${port}`);
 });
