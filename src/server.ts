@@ -38,7 +38,7 @@ type MetricsResponse = {
 };
 
 const app = express();
-const port = Number(process.env.PORT ?? 3000);
+const port = 5001;
 
 const publicDir = path.join(process.cwd(), "public");
 app.use(express.static(publicDir));
